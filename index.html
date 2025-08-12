@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Živý obraz z kamery</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        video {
+            border: 2px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 90%;
+        }
+    </style>
+</head>
+<body>
+    <video id="webcam-video" autoplay playsinline></video>
+
+    <script>
+        const video = document.getElementById('webcam-video');
+
+        // Zkontroluje, zda prohlížeč podporuje getUserMedia
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            // Požádá o přístup ke kameře
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    // Přiřadí stream k video elementu
+                    video.srcObject = stream;
+                })
+                .catch(error => {
+                    console.error('Přístup ke kameře byl odmítnut nebo nastala chyba:', error);
+                    alert('Přístup ke kameře byl zamítnut nebo nastala chyba. Zkontrolujte, zda jste aplikaci povolili přístup ke kameře.');
+                });
+        } else {
+            alert('Váš prohlížeč nepodporuje přístup ke kameře.');
+        }
+    </script>
+</body>
+</html>
