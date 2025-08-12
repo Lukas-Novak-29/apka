@@ -3,31 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Webová kamera a nahrávání videa</title>
+    <title>Živý obraz z kamery s nahráváním</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
+            align-items: center;
             height: 100vh;
             margin: 0;
             background-color: #f0f0f0;
+            gap: 20px;
         }
-        #video-container {
-            position: relative;
-            width: 80%;
-            max-width: 640px;
-            margin-bottom: 20px;
-            background-color: #000;
+        video {
+            border: 2px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 90%;
+            background-color: black;
         }
-        #videoElement {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        #controls {
+        .controls {
             display: flex;
             gap: 15px;
         }
@@ -37,111 +33,143 @@
             cursor: pointer;
             border: none;
             border-radius: 5px;
+            background-color: #007bff;
             color: white;
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s;
         }
-        #recordButton {
-            background-color: #4CAF50; /* Zelená */
+        button:hover {
+            background-color: #0056b3;
         }
-        #stopButton {
-            background-color: #f44336; /* Červená */
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
         }
-        #recordButton:hover {
-            background-color: #45a049;
-        }
-        #stopButton:hover {
-            background-color: #da190b;
-        }
-        .hidden {
+        .recording-indicator {
+            width: 15px;
+            height: 15px;
+            background-color: red;
+            border-radius: 50%;
             display: none;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
         }
     </style>
 </head>
 <body>
+    <video id="webcam-video" autoplay playsinline></video>
 
-    <h1>Webová kamera a nahrávání videa</h1>
-
-    <div id="video-container">
-        <video id="videoElement" autoplay></video>
-    </div>
-
-    <div id="controls">
-        <button id="recordButton">Nahrávat</button>
-        <button id="stopButton" class="hidden">Zastavit</button>
+    <div class="controls">
+        <button id="start-recording-btn">Nahrávat</button>
+        <button id="stop-recording-btn" disabled>Zastavit nahrávání</button>
+        <button id="switch-camera-btn">Přepnout kameru</button>
+        <div id="recording-status" class="recording-indicator"></div>
     </div>
 
     <script>
-        const videoElement = document.getElementById('videoElement');
-        const recordButton = document.getElementById('recordButton');
-        const stopButton = document.getElementById('stopButton');
+        const video = document.getElementById('webcam-video');
+        const startBtn = document.getElementById('start-recording-btn');
+        const stopBtn = document.getElementById('stop-recording-btn');
+        const switchBtn = document.getElementById('switch-camera-btn');
+        const recordingStatus = document.getElementById('recording-status');
 
         let mediaRecorder;
-        let recordedBlobs;
+        let recordedChunks = [];
+        let currentStream;
+        let videoInputs = [];
+        let currentCameraIndex = 0;
 
-        // 1. Přístup ke kameře
-        async function startCamera() {
+        async function getStream(deviceId) {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                window.stream = stream;
-                videoElement.srcObject = stream;
-                console.log('Kamera spuštěna.');
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+                const constraints = {
+                    video: deviceId ? { deviceId: { exact: deviceId } } : true
+                };
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+                startBtn.disabled = false;
             } catch (error) {
-                console.error('Došlo k chybě při přístupu ke kameře:', error);
-                alert('Nepodařilo se získat přístup ke kameře. Ujistěte se, že jste povolili přístup.');
+                console.error('Přístup ke kameře byl odmítnut nebo nastala chyba:', error);
+                alert('Přístup ke kameře byl zamítnut nebo nastala chyba. Zkontrolujte, zda jste aplikaci povolili přístup.');
             }
         }
 
-        // 2. Spuštění nahrávání
-        recordButton.onclick = () => {
-            recordedBlobs = [];
-            const options = { mimeType: 'video/webm; codecs=vp9' }; // Formát videa
-            try {
-                mediaRecorder = new MediaRecorder(window.stream, options);
-            } catch (error) {
-                console.error('MediaRecorder nelze vytvořit:', error);
-                alert('Nahrávání není v tomto prohlížeči podporováno.');
+        async function getCameras() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                alert('Váš prohlížeč nepodporuje výčet zařízení.');
                 return;
             }
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            videoInputs = devices.filter(device => device.kind === 'videoinput');
+            if (videoInputs.length > 1) {
+                switchBtn.style.display = 'inline-block';
+            } else {
+                switchBtn.style.display = 'none';
+            }
+        }
 
-            mediaRecorder.onstop = (event) => {
-                console.log('Nahrávání zastaveno.');
-                const superBuffer = new Blob(recordedBlobs, { type: 'video/webm' });
-                // Vytvoření dočasného odkazu pro stažení videa
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = window.URL.createObjectURL(superBuffer);
-                a.download = 'nahrane_video.webm';
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(a.href);
-                }, 100);
-            };
+        function startRecording() {
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(currentStream, { mimeType: 'video/webm' });
 
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data && event.data.size > 0) {
-                    recordedBlobs.push(event.data);
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
                 }
             };
 
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                document.body.appendChild(a);
+                a.style = 'display: none';
+                a.href = url;
+                a.download = 'nahravka.webm';
+                a.click();
+                window.URL.revokeObjectURL(url);
+            };
+
             mediaRecorder.start();
-            console.log('Nahrávání spuštěno.');
-            recordButton.classList.add('hidden');
-            stopButton.classList.remove('hidden');
-        };
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            recordingStatus.style.display = 'block';
+            console.log('Nahrávání zahájeno...');
+        }
 
-        // 3. Zastavení nahrávání
-        stopButton.onclick = () => {
+        function stopRecording() {
             mediaRecorder.stop();
-            console.log('Nahrávání zastaveno.');
-            recordButton.classList.remove('hidden');
-            stopButton.classList.add('hidden');
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            recordingStatus.style.display = 'none';
+            console.log('Nahrávání zastaveno. Stahuji video...');
+        }
+
+        function switchCamera() {
+            if (videoInputs.length < 2) return;
+            currentCameraIndex = (currentCameraIndex + 1) % videoInputs.length;
+            const nextCameraId = videoInputs[currentCameraIndex].deviceId;
+            getStream(nextCameraId);
+        }
+
+        window.onload = () => {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                getCameras().then(() => {
+                    getStream(videoInputs[currentCameraIndex]?.deviceId);
+                });
+            } else {
+                alert('Váš prohlížeč nepodporuje přístup ke kameře.');
+            }
         };
 
-        // Spuštění kamery při načtení stránky
-        window.onload = startCamera;
+        startBtn.addEventListener('click', startRecording);
+        stopBtn.addEventListener('click', stopRecording);
+        switchBtn.addEventListener('click', switchCamera);
     </script>
-
 </body>
 </html>
